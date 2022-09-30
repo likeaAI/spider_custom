@@ -6,7 +6,6 @@ from nltk import word_tokenize
 import jaydebeapi
 import re
 
-
 CLAUSE_KEYWORDS = ('select', 'from', 'where', 'group', 'order', 'limit', 'intersect', 'union', 'except')
 JOIN_KEYWORDS = ('join', 'on', 'as')
 
@@ -22,7 +21,10 @@ COND_OPS = ('and', 'or')
 SQL_OPS = ('intersect', 'union', 'except')
 ORDER_OPS = ('desc', 'asc')
 
-
+HARDNESS = {
+    "component1": ('where', 'group', 'order', 'limit', 'join', 'or', 'like'),
+    "component2": ('except', 'union', 'intersect')
+}
 
 class Schema:
     """
@@ -565,12 +567,6 @@ DISABLE_VALUE = True
 # Flag to disable distinct in select evaluation
 DISABLE_DISTINCT = True
 
-
-HARDNESS = {
-    "component1": ('where', 'group', 'order', 'limit', 'join', 'or', 'like'),
-    "component2": ('except', 'union', 'intersect')
-}
-
 def get_nestedSQL(sql):
     nested = []
     for cond_unit in sql['from']['conds'][::2] + sql['where'][::2] + sql['having'][::2]:
@@ -690,19 +686,38 @@ def count_others(sql):
     return count
 
 
-def eval_hardness(sql):
+
+# def eval_hardness(sql): # 기존 깃허브 오리지널 판정코드
+#     count_comp1_ = count_component1(sql)
+#     count_comp2_ = count_component2(sql)
+#     count_others_ = count_others(sql)
+#
+#     if count_comp1_ <= 1 and count_others_ == 0 and count_comp2_ == 0:  #0-0-0 , 1-0-0 easy
+#         return "easy"
+#     elif (count_others_ <= 2 and count_comp1_ <= 1 and count_comp2_ == 0) or (count_comp1_ <= 2 and count_others_ < 2 and count_comp2_ == 0):
+#         return "medium" #1        0,1- 0 - 0,1,2   #2        0,1,2 - 0 - 0,1
+#
+#     elif (count_others_ > 2 and count_comp1_ <= 2 and count_comp2_ == 0) or (2 < count_comp1_ <= 3 and count_others_ <= 2 and count_comp2_ == 0) or (count_comp1_ <= 1 and count_others_ == 0 and count_comp2_ <= 1):
+#         return "hard"
+#     else:
+#         return "extra hard"
+
+def eval_hardness(sql): # gitlab 수정 코드 확인
     count_comp1_ = count_component1(sql)
     count_comp2_ = count_component2(sql)
     count_others_ = count_others(sql)
 
     if count_comp1_ <= 1 and count_others_ == 0 and count_comp2_ == 0:
         return "easy"
-    elif (count_others_ <= 2 and count_comp1_ <= 1 and count_comp2_ == 0) or (count_comp1_ <= 2 and count_others_ < 2 and count_comp2_ == 0):
+    elif (count_others_ <= 2 and count_comp1_ <= 1 and count_comp2_ == 0) or \
+            (count_comp1_ <= 2 and count_others_ < 2 and count_comp2_ == 0):
         return "medium"
-    elif (count_others_ > 2 and count_comp1_ <= 2 and count_comp2_ == 0) or (2 < count_comp1_ <= 3 and count_others_ <= 2 and count_comp2_ == 0) or (count_comp1_ <= 1 and count_others_ == 0 and count_comp2_ <= 1):
+    elif (count_others_ > 2 and count_comp1_ <= 2 and count_comp2_ == 0) or \
+            (2 < count_comp1_ <= 3 and count_others_ <= 2 and count_comp2_ == 0) or \
+            (count_comp1_ <= 1 and count_others_ == 0 and count_comp2_ <= 1):
         return "hard"
     else:
-        return "extra"
+        return "extra hard"
 
 
 class Schema:
@@ -738,9 +753,6 @@ class Schema:
         for i, tab in enumerate(table_names_original):
             key = tab.lower()
             idMap[key] = i
-
-
-
         return idMap
 
 def get_schemas_from_json(fpath):
@@ -764,20 +776,9 @@ def get_schemas_from_json(fpath):
 
     return schemas, db_names, tables
 
-def evaluation(sql_label , sql ) :
-        comp_1 = count_component1(sql_label)
-        comp_2 = count_component2(sql_label)
-        comp_other = count_others(sql_label)
 
-        level = eval_hardness(sql_label)
-        score = f"{comp_1}-{comp_2}-{comp_other}"
+########################################################################################################################
 
-        print("query : ", sql)
-        print(f"type : {score} , level : {level}")
-
-
-
-#######################################################################################################################
 def sql_level(query, db_id) : # db정보를 json으로 가져와서 비교하는 함수
     sql = query
     db_id = db_id
@@ -800,9 +801,10 @@ def sql_level(query, db_id) : # db정보를 json으로 가져와서 비교하는
     level = eval_hardness(sql_label)
     score = f"{comp_1}-{comp_2}-{comp_other}"
 
-    print("쿼리문: ",sql)
-    print(f"유형 : {score} , 난이도 :{level}")
+    print("query : ", sql)
+    print(f"type : {score} , level : {level}")
 
+    return str(level), str(score)
 
 def spider_level_query(query) : # db에 접속해서 쿼리문만으로 테이블명과 db_id를 가져와서 쿼리 난이도를 판별하는 함수
     # 티베로 db 접속
@@ -823,7 +825,7 @@ def spider_level_query(query) : # db에 접속해서 쿼리문만으로 테이�
 
     if "JOIN" in query_list :
         global table2_name
-        print("join exist")
+        #print("join exist")
         table2_index = query_list.index("JOIN") + 1
         table2_name = str(query_list[table2_index])
 
@@ -916,14 +918,16 @@ def spider_level_query(query) : # db에 접속해서 쿼리문만으로 테이�
         level = eval_hardness(sql_label)
         score = f"{comp_1}-{comp_2}-{comp_other}"
 
-        print("query : ", sql)
-        print(f"type : {score} , level : {level}")
+        #print("query : ", sql)
+        #print(f"type : {score} , level : {level}")
+
+        return str(level), str(score)
 
 
 
 
     else :
-        print("join not exist")
+        #print("join not exist")
         # 확인한 테이블명으로 data_sql 쿼리문 실행하여 db_id, physical_data_id등을 조회
         data_sql = f"SELECT PHYSICAL_TABLE_NAME,id,DATA_BASIC_ID FROM MANAGE_PHYSICAL_TABLE WHERE LOGICAL_TABLE_ENGLISH = '{table_name}'"
         # print(data_sql)
@@ -933,7 +937,7 @@ def spider_level_query(query) : # db에 접속해서 쿼리문만으로 테이�
         db_id = data01[0][1]
         # physical_data_id = data01[0][2] # 컬럼조회용으로 physical_data_id 사용
         # print(physical_data_id)
-        print(db_id)
+        # print(db_id)
 
         column_sql = f"SELECT LOGICAL_COLUMN_ENGLISH FROM MANAGE_PHYSICAL_COLUMN WHERE DATA_PHYSICAL_ID = '{db_id}'"
         cur.execute(column_sql)
@@ -980,8 +984,11 @@ def spider_level_query(query) : # db에 접속해서 쿼리문만으로 테이�
         level = eval_hardness(sql_label)
         score = f"{comp_1}-{comp_2}-{comp_other}"
 
-        print("query : ", sql)
-        print(f"type : {score} , level : {level}")
+        #print("query : ", sql)
+        #print(f"type : {score} , level : {level}")
+
+        return str(level), str(score)
+
 
 #spider_level_query("SELECT T1.YEAR, T1.BALANCE_TRADE_TEXTILE_INDUSTRY FROM IMPORT_EXPORT_STS_MOTIE_TEXTILE_I AS T1 JOIN CUR_STA_WORKERS_MOTIE_TEXTILE_I AS T2 ON T1.YEAR = T2.YEAR WHERE T2.YEAR IN (SELECT YEAR FROM IMPORT_EXPORT_STS_MOTIE_TEXTILE_I WHERE TEXTILE_INDUSTRY_REVENUE_AMOUNT <= 5000) AND T2.PERCENTAGE_WORKERS_TEXTILE_INDUSTRY >= 10")
 
